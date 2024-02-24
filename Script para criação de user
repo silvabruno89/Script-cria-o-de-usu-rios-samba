@@ -1,0 +1,189 @@
+#!/bin/bash
+
+USUARIOS_ARQUIVO="usuarios.txt"
+GRUPOS_ARQUIVO="grupos.txt"
+
+Principal() {
+    clear
+    echo "+-------------------------------------------------------------------+"
+    echo "|  Utilities for LinuX                                              |"
+    echo "+-------------------------------------------------------------------+"
+    echo "|  Adicionar/Remover usuários e grupos no Samba                     |"
+    echo "+-------------------------------------------------------------------+"
+    echo
+    echo "Opções:"
+    echo "1. Adicionar um usuário"
+    echo "2. Deletar um usuário"
+    echo "3. Adicionar um grupo"
+    echo "4. Deletar um grupo"
+    echo "5. Verificar todos os usuários"
+    echo "6. Verificar os grupos de usuários"
+    echo "7. Alterar senha de um usuário"
+    echo "8. Sair"
+    read -p "Entre com a opção desejada => " opcao
+    echo
+
+    case $opcao in
+        1) AdicionarUsuario ;;
+        2) DeletarUsuario ;;
+        3) AdicionarGrupo ;;
+        4) DeletarGrupo ;;
+        5) VerificarTodosUsuarios ;;
+        6) VerificarGruposUsuarios ;;
+        7) AlterarSenhaUsuario ;;
+        8) exit 0 ;;
+        *) echo "Opção Desconhecida."; echo; Principal ;;
+    esac
+}
+
+AdicionarUsuario() {
+    echo -n "Entre com o login do usuário: "
+    read login
+    echo -n "Entre com o nome completo do usuário: "
+    read nome
+    echo -n "Entre com a senha do usuário: "
+    stty -echo
+    read senha
+    stty echo
+
+    read -p "Deseja associar o usuário a um grupo existente? (S/n): " associar_grupo
+    if [ "$associar_grupo" == "S" ] || [ "$associar_grupo" == "s" ]; then
+        read -p "Entre com o nome do grupo: " nome_grupo
+        /usr/sbin/useradd $login -c "$nome" -G "$nome_grupo" -s /bin/false
+    else
+        /usr/sbin/useradd $login -c "$nome" -s /bin/false
+    fi
+
+    if [ $? -eq 0 ]; then
+        echo "$senha" | /usr/bin/passwd $login
+        (echo "$senha"; echo "$senha") | smbpasswd -s -a $login
+
+        if [ $? -eq 0 ]; then
+            echo "Usuário '$login' adicionado com sucesso."
+            echo "$login:$senha" >> "$USUARIOS_ARQUIVO"
+        else
+            echo "Falha ao adicionar usuário '$login' no Samba."
+        fi
+    else
+        echo "Falha ao adicionar usuário '$login' no sistema Linux."
+    fi
+
+    echo
+    read -p "Pressione qualquer tecla para continuar..."
+    Principal
+}
+
+DeletarUsuario() {
+    echo -n "Entre com o login do usuário a deletar: "
+    read login
+
+    if id "$login" &>/dev/null; then
+        /usr/bin/smbpasswd -x "$login"
+        /usr/sbin/userdel "$login"
+
+        if [ $? -eq 0 ]; then
+            echo "Usuário '$login' removido com sucesso."
+            sed -i "/^$login:/d" "$USUARIOS_ARQUIVO"
+        else
+            echo "Falha ao remover usuário '$login'."
+        fi
+    else
+        echo "Usuário '$login' não encontrado."
+    fi
+
+    echo
+    read -p "Pressione qualquer tecla para continuar..."
+    Principal
+}
+
+AdicionarGrupo() {
+    echo -n "Entre com o nome do grupo: "
+    read nome_grupo
+
+    /usr/sbin/groupadd $nome_grupo
+
+    if [ $? -eq 0 ]; then
+        echo "Grupo '$nome_grupo' adicionado com sucesso."
+        echo "$nome_grupo" >> "$GRUPOS_ARQUIVO"
+    else
+        echo "Falha ao adicionar grupo '$nome_grupo'."
+    fi
+
+    echo
+    read -p "Pressione qualquer tecla para continuar..."
+    Principal
+}
+
+DeletarGrupo() {
+    echo -n "Entre com o nome do grupo a deletar: "
+    read nome_grupo
+
+    if grep -q "^$nome_grupo:" "$GRUPOS_ARQUIVO"; then
+        /usr/sbin/groupdel "$nome_grupo"
+
+        if [ $? -eq 0 ]; then
+            echo "Grupo '$nome_grupo' removido com sucesso."
+            sed -i "/^$nome_grupo/d" "$GRUPOS_ARQUIVO"
+        else
+            echo "Falha ao remover grupo '$nome_grupo'."
+        fi
+    else
+        echo "Grupo '$nome_grupo' não encontrado."
+    fi
+
+    echo
+    read -p "Pressione qualquer tecla para continuar..."
+    Principal
+}
+
+VerificarTodosUsuarios() {
+    echo "Lista de Todos os Usuários:"
+    cat "$USUARIOS_ARQUIVO"
+    echo
+    read -p "Pressione qualquer tecla para continuar..."
+    Principal
+}
+
+VerificarGruposUsuarios() {
+    echo "Lista de Grupos e seus Usuários:"
+    while IFS=: read -r groupname _; do
+        echo "Grupo: $groupname"
+        members=$(getent group "$groupname" | cut -d: -f4 | tr ',' '\n')
+        for member in $members; do
+            echo "- $member"
+        done
+        echo
+    done < "$GRUPOS_ARQUIVO"
+    
+    read -p "Pressione qualquer tecla para continuar..."
+    Principal
+}
+
+AlterarSenhaUsuario() {
+    echo -n "Entre com o login do usuário para alterar a senha: "
+    read login
+
+    if id "$login" &>/dev/null; then
+        echo -n "Entre com a nova senha: "
+        stty -echo
+        read nova_senha
+        stty echo
+
+        echo "$nova_senha" | /usr/bin/passwd "$login"
+        (echo "$nova_senha"; echo "$nova_senha") | smbpasswd -s -a "$login"
+
+        if [ $? -eq 0 ]; then
+            echo "Senha do usuário '$login' alterada com sucesso."
+        else
+            echo "Falha ao alterar a senha do usuário '$login'."
+        fi
+    else
+        echo "Usuário '$login' não encontrado."
+    fi
+
+    echo
+    read -p "Pressione qualquer tecla para continuar..."
+    Principal
+}
+
+Principal
